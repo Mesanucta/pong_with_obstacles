@@ -9,6 +9,11 @@ const PADDLE_SIZE: Vec2 = Vec2::new(20.0, 120.0);
 
 const DASHEDLINE_SIZE: f32 = 20.;
 
+const BALL_STARTING_POSITION: Vec3 = Vec3::new(-610.0, 0.0, 1.0);
+const BALL_SIZE: f32 = 20.;
+const BALL_SPEED: f32 = 400.0;
+const INITIAL_BALL_DIRECTION: Vec2 = Vec2::new(0.5, -0.5);
+
 const WALL_THICKNESS: f32 = 1.0;
 const VERTICAL_WALL_THICKNESS: f32 = 20.0;
 const LEFT_WALL: f32 = -640.;
@@ -82,6 +87,14 @@ struct Collider;
 #[require(Sprite, Transform, Collider)]
 struct Wall;
 
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WallType {
+    Left,
+    Right,
+    Bottom,
+    Top,
+}
+
 enum WallLocation {
     Left,
     Right,
@@ -120,7 +133,7 @@ impl WallLocation {
 }
 
 impl Wall {
-    fn new(location: WallLocation) -> (Wall, Sprite, Transform) {
+    fn new(location: WallLocation) -> (Wall, WallType, Sprite, Transform) {
         // 上下墙白色，左右墙不可见
         let color = match location{
             WallLocation::Left | WallLocation::Right => {
@@ -130,8 +143,23 @@ impl Wall {
                 Color::WHITE
             }
         };
+        let walltype = match location{
+            WallLocation::Left => {
+                WallType::Left
+            }
+            WallLocation::Right => {
+                WallType::Right
+            }
+            WallLocation::Top => {
+                WallType::Top
+            }
+            WallLocation::Bottom => {
+                WallType::Bottom
+            }
+        };
         (
             Wall,
+            walltype,
             Sprite::from_color(color, Vec2::ONE),
             Transform {
                 translation: location.position().extend(0.0),
@@ -186,6 +214,16 @@ fn setup(
     commands.spawn(Wall::new(WallLocation::Right));
     commands.spawn(Wall::new(WallLocation::Bottom));
     commands.spawn(Wall::new(WallLocation::Top));
+
+    // Ball
+    commands.spawn((
+        Mesh2d(meshes.add(Rectangle::new(BALL_SIZE, BALL_SIZE))),
+        MeshMaterial2d(materials.add(Color::WHITE)),
+        Transform::from_translation(BALL_STARTING_POSITION + Vec3::new(0.0, 0.0, 0.0))
+            .with_scale(Vec3::ONE),
+        Ball,
+        Velocity(INITIAL_BALL_DIRECTION.normalize() * BALL_SPEED),
+    ));
 
     // DashedLineSegment
     let center_line_start = Vec3::new(0.0, TOP_WALL, 0.0);
