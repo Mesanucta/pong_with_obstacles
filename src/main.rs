@@ -7,6 +7,7 @@ use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
 use rand::Rng;
 
 const PADDLE_SIZE: Vec2 = Vec2::new(20.0, 120.0);
+const PADDLE_SPEED: f32 = 500.0;
 
 const DASHEDLINE_SIZE: f32 = 20.;
 
@@ -57,6 +58,7 @@ fn main() {
             FixedUpdate,
             (
                 apply_velocity,
+                move_paddle,
             ).chain()
         )
         .add_systems(Update, (make_visible, update_scoreboard))
@@ -318,4 +320,38 @@ fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>, time: Res<Time>
         transform.translation.x += velocity.x * time.delta_secs();
         transform.translation.y += velocity.y * time.delta_secs();
     }
+}
+
+fn move_paddle(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut query: Query<(&mut Transform, &PaddleType), With<Paddle>>,
+    time: Res<Time>,
+) {
+    let top_bound = TOP_WALL - WALL_THICKNESS / 2.0 - PADDLE_SIZE.y / 2.0;
+    let bottom_bound = BOTTOM_WALL + WALL_THICKNESS / 2.0 + PADDLE_SIZE.y / 2.0;
+    let mut directions = (0.0, 0.0);
+
+    if keyboard_input.pressed(KeyCode::KeyW) {
+        directions.0 += 1.0;
+    }
+    if keyboard_input.pressed(KeyCode::KeyS) {
+        directions.0 -= 1.0;
+    }
+
+    if keyboard_input.pressed(KeyCode::ArrowUp) {
+        directions.1 += 1.0;
+    }
+    if keyboard_input.pressed(KeyCode::ArrowDown) {
+        directions.1 -= 1.0;
+    }
+
+    for (mut paddle_transform, paddle_type) in query.iter_mut(){
+        let direction = match paddle_type {
+            PaddleType::Left => directions.0,
+            PaddleType::Right => directions.1
+        };
+        let new_paddle_position = paddle_transform.translation.y + direction * PADDLE_SPEED * time.delta_secs();
+        paddle_transform.translation.y = new_paddle_position.clamp(bottom_bound, top_bound);
+    }
+
 }
