@@ -216,10 +216,11 @@ fn setup(
     commands.spawn(Wall::new(WallLocation::Top));
 
     // Ball
+    let starting_position = rand::rng().random_range(-450.0..=450.0);
     commands.spawn((
         Mesh2d(meshes.add(Rectangle::new(BALL_SIZE, BALL_SIZE))),
         MeshMaterial2d(materials.add(Color::WHITE)),
-        Transform::from_translation(BALL_STARTING_POSITION + Vec3::new(0.0, 0.0, 0.0))
+        Transform::from_translation(BALL_STARTING_POSITION + Vec3::new(0.0, starting_position, 0.0))
             .with_scale(Vec3::ONE),
         Ball,
         Velocity(INITIAL_BALL_DIRECTION.normalize() * BALL_SPEED),
