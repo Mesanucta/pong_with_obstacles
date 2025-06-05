@@ -55,6 +55,7 @@ fn main() {
         .insert_resource(Score(0, 0))
         .insert_resource(ClearColor(Color::BLACK))
         .add_event::<CollisionEvent>()
+        .add_event::<ScoreEvent>()
         .add_systems(Startup, setup)
         .add_systems(
             FixedUpdate,
@@ -103,8 +104,14 @@ struct Velocity(Vec2);
 #[derive(Event, Default)]
 struct CollisionEvent;
 
+#[derive(Event, Default)]
+struct ScoreEvent;
+
 #[derive(Resource, Deref)]
 struct CollisionSound(Handle<AudioSource>);
+
+#[derive(Resource, Deref)]
+struct ScoreSound(Handle<AudioSource>);
 
 #[derive(Component, Default)]
 struct Collider;
@@ -208,6 +215,9 @@ fn setup(
     // Sound
     let ball_collision_sound = asset_server.load("sounds/pong_collision.ogg");
     commands.insert_resource(CollisionSound(ball_collision_sound));
+
+    let score_sound = asset_server.load("sounds/score.ogg");
+    commands.insert_resource(ScoreSound(score_sound));
 
     // Paddle 1
     commands.spawn((
@@ -374,6 +384,7 @@ fn check_for_collisions(
     ball_query: Single<(&mut Velocity, &Transform), With<Ball>>,
     collider_query: Query<(&Transform, Option<&WallType>), With<Collider>>,
     mut collision_events: EventWriter<CollisionEvent>,
+    mut score_events: EventWriter<ScoreEvent>,
 ) {
     let (mut ball_velocity, ball_transform) = ball_query.into_inner();
 
@@ -387,18 +398,20 @@ fn check_for_collisions(
         );
 
         if let Some(collision) = collision {
-            collision_events.write_default();
-
             if let Some(wall_type) = maybe_wall_type {
                 match wall_type {
                     WallType::Right => {
                         score.0 += 1;
+                        score_events.write_default();
                     }
                     WallType::Left => {
                         score.1 += 1;
+                        score_events.write_default();
                     }
-                    WallType::Top | WallType::Bottom => {}
+                    WallType::Top | WallType::Bottom => {collision_events.write_default();}
                 }
+            } else{
+                collision_events.write_default();
             }
             
             let mut reflect_x = false;
@@ -455,10 +468,16 @@ fn ball_collision(ball: BoundingCircle, bounding_box: Aabb2d) -> Option<Collisio
 fn play_collision_sound(
     mut commands: Commands,
     mut collision_events: EventReader<CollisionEvent>,
-    sound: Res<CollisionSound>,
+    mut score_events: EventReader<ScoreEvent>,
+    collision_sound: Res<CollisionSound>,
+    score_sound: Res<ScoreSound>,
 ) {
     if !collision_events.is_empty() {
         collision_events.clear();
-        commands.spawn((AudioPlayer(sound.clone()), PlaybackSettings::DESPAWN));
+        commands.spawn((AudioPlayer(collision_sound.clone()), PlaybackSettings::DESPAWN));
+    }
+    if !score_events.is_empty() {
+        score_events.clear();
+        commands.spawn((AudioPlayer(score_sound.clone()), PlaybackSettings::DESPAWN));
     }
 }
