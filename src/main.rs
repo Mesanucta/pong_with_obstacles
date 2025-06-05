@@ -1,5 +1,6 @@
 use bevy::{
     prelude::*,
+    math::bounding::{Aabb2d, BoundingCircle, BoundingVolume, IntersectsVolume},
     window::{PresentMode, WindowTheme},
     diagnostic::{FrameCount},
 };
@@ -354,4 +355,35 @@ fn move_paddle(
         paddle_transform.translation.y = new_paddle_position.clamp(bottom_bound, top_bound);
     }
 
+}
+
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+enum Collision {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+fn ball_collision(ball: BoundingCircle, bounding_box: Aabb2d) -> Option<Collision> {
+    if !ball.intersects(&bounding_box) {
+        return None;
+    }
+
+    let closest = bounding_box.closest_point(ball.center());
+    let offset = ball.center() - closest;
+    let side = if offset.x.abs() > offset.y.abs() {
+        if offset.x < 0. {
+            Collision::Left
+        } else {
+            Collision::Right
+        }
+    } else if offset.y > 0. {
+        Collision::Top
+    } else {
+        Collision::Bottom
+    };
+
+    Some(side)
 }
