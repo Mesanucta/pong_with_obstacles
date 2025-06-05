@@ -53,6 +53,12 @@ fn main() {
         .insert_resource(Score(0, 0))
         .insert_resource(ClearColor(Color::BLACK))
         .add_systems(Startup, setup)
+        .add_systems(
+            FixedUpdate,
+            (
+                apply_velocity,
+            ).chain()
+        )
         .add_systems(Update, (make_visible, update_scoreboard))
         .run();
 }
@@ -304,5 +310,12 @@ fn update_scoreboard(
     if entities.len() == 2 {
         *writer.text(entities[0], 1) = score.0.to_string();
         *writer.text(entities[1], 1) = score.1.to_string();
+    }
+}
+
+fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>, time: Res<Time>) {
+    for (mut transform, velocity) in &mut query {
+        transform.translation.x += velocity.x * time.delta_secs();
+        transform.translation.y += velocity.y * time.delta_secs();
     }
 }
