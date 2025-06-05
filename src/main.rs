@@ -54,18 +54,22 @@ fn main() {
         .add_plugins(WorldInspectorPlugin::new())
         .insert_resource(Score(0, 0))
         .insert_resource(ClearColor(Color::BLACK))
+        .add_event::<CollisionEvent>()
         .add_systems(Startup, setup)
         .add_systems(
             FixedUpdate,
             (
                 apply_velocity,
                 move_paddle,
+                check_for_collisions,
+                play_collision_sound,
             ).chain()
         )
         .add_systems(Update, (make_visible, update_scoreboard))
         .run();
 }
 
+//等待渲染，延迟3帧窗口可见
 fn make_visible(mut window: Single<&mut Window>, frames: Res<FrameCount>){
     if frames.0 == 3{
         window.visible = true;
@@ -95,6 +99,9 @@ struct ScoreboardUi;
 
 #[derive(Component, Deref, DerefMut)]
 struct Velocity(Vec2);
+
+#[derive(Event, Default)]
+struct CollisionEvent;
 
 #[derive(Resource, Deref)]
 struct CollisionSound(Handle<AudioSource>);
@@ -331,12 +338,16 @@ fn move_paddle(
     let top_bound = TOP_WALL - WALL_THICKNESS / 2.0 - PADDLE_SIZE.y / 2.0;
     let bottom_bound = BOTTOM_WALL + WALL_THICKNESS / 2.0 + PADDLE_SIZE.y / 2.0;
     let mut directions = (0.0, 0.0);
+    let mut accelerate_factors = (1.0, 1.0);
 
     if keyboard_input.pressed(KeyCode::KeyW) {
         directions.0 += 1.0;
     }
     if keyboard_input.pressed(KeyCode::KeyS) {
         directions.0 -= 1.0;
+    }
+    if keyboard_input.pressed(KeyCode::ShiftLeft) {
+        accelerate_factors.0 += 1.0;
     }
 
     if keyboard_input.pressed(KeyCode::ArrowUp) {
@@ -345,18 +356,71 @@ fn move_paddle(
     if keyboard_input.pressed(KeyCode::ArrowDown) {
         directions.1 -= 1.0;
     }
-
+    if keyboard_input.pressed(KeyCode::NumpadEnter) {
+        accelerate_factors.1 += 1.0;
+    }
     for (mut paddle_transform, paddle_type) in query.iter_mut(){
-        let direction = match paddle_type {
-            PaddleType::Left => directions.0,
-            PaddleType::Right => directions.1
+        let (direction, accelerate_fact) = match paddle_type {
+            PaddleType::Left => (directions.0, accelerate_factors.0),
+            PaddleType::Right => (directions.1, accelerate_factors.1)
         };
-        let new_paddle_position = paddle_transform.translation.y + direction * PADDLE_SPEED * time.delta_secs();
+        let new_paddle_position = paddle_transform.translation.y + direction * PADDLE_SPEED * accelerate_fact * time.delta_secs();
         paddle_transform.translation.y = new_paddle_position.clamp(bottom_bound, top_bound);
     }
-
 }
 
+fn check_for_collisions(
+    mut score: ResMut<Score>,
+    ball_query: Single<(&mut Velocity, &Transform), With<Ball>>,
+    collider_query: Query<(&Transform, Option<&WallType>), With<Collider>>,
+    mut collision_events: EventWriter<CollisionEvent>,
+) {
+    let (mut ball_velocity, ball_transform) = ball_query.into_inner();
+
+    for (collider_transform, maybe_wall_type) in &collider_query {
+        let collision = ball_collision(
+            BoundingCircle::new(ball_transform.translation.truncate(), BALL_SIZE / 2.),
+            Aabb2d::new(
+                collider_transform.translation.truncate(),
+                collider_transform.scale.truncate() / 2.,
+            ),
+        );
+
+        if let Some(collision) = collision {
+            collision_events.write_default();
+
+            if let Some(wall_type) = maybe_wall_type {
+                match wall_type {
+                    WallType::Right => {
+                        score.0 += 1;
+                    }
+                    WallType::Left => {
+                        score.1 += 1;
+                    }
+                    WallType::Top | WallType::Bottom => {}
+                }
+            }
+            
+            let mut reflect_x = false;
+            let mut reflect_y = false;
+
+            match collision {
+                Collision::Left => reflect_x = ball_velocity.x > 0.0,
+                Collision::Right => reflect_x = ball_velocity.x < 0.0,
+                Collision::Top => reflect_y = ball_velocity.y < 0.0,
+                Collision::Bottom => reflect_y = ball_velocity.y > 0.0,
+            }
+
+            if reflect_x {
+                ball_velocity.x = -ball_velocity.x;
+            }
+
+            if reflect_y {
+                ball_velocity.y = -ball_velocity.y;
+            }
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 enum Collision {
@@ -386,4 +450,15 @@ fn ball_collision(ball: BoundingCircle, bounding_box: Aabb2d) -> Option<Collisio
     };
 
     Some(side)
+}
+
+fn play_collision_sound(
+    mut commands: Commands,
+    mut collision_events: EventReader<CollisionEvent>,
+    sound: Res<CollisionSound>,
+) {
+    if !collision_events.is_empty() {
+        collision_events.clear();
+        commands.spawn((AudioPlayer(sound.clone()), PlaybackSettings::DESPAWN));
+    }
 }
