@@ -4,6 +4,7 @@ use bevy::{
     diagnostic::{FrameCount},
 };
 use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
+use rand::Rng;
 
 const PADDLE_SIZE: Vec2 = Vec2::new(20.0, 120.0);
 
@@ -23,6 +24,8 @@ const TOP_WALL: f32 = 470.;
 
 const GAP_BETWEEN_PADDLE_AND_SIDES: f32 = 10.0;
 const GAP_BETWEEN_DASHEDLINESEGMENTS: f32 = 40.0;
+
+const SCOREBOARD_FONT_SIZE: f32 = 150.0;
 
 fn main() {
     App::new()
@@ -47,9 +50,10 @@ fn main() {
         ))
         .add_plugins(EguiPlugin { enable_multipass_for_primary_context: true })
         .add_plugins(WorldInspectorPlugin::new())
+        .insert_resource(Score(0, 0))
         .insert_resource(ClearColor(Color::BLACK))
         .add_systems(Startup, setup)
-        .add_systems(Update, make_visible)
+        .add_systems(Update, (make_visible, update_scoreboard))
         .run();
 }
 
@@ -73,6 +77,12 @@ struct Ball;
 
 #[derive(Component)]
 struct DashedLineSegment;
+
+#[derive(Resource)]
+struct Score(usize, usize);
+
+#[derive(Component)]
+struct ScoreboardUi;
 
 #[derive(Component, Deref, DerefMut)]
 struct Velocity(Vec2);
@@ -243,4 +253,56 @@ fn setup(
         offset += GAP_BETWEEN_DASHEDLINESEGMENTS;
     }
 
+    // Scoreboard
+    let scoreboard_font = asset_server.load("fonts/Bit3.ttf");
+    commands.spawn((
+        Text::new(""),
+        ScoreboardUi,
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(20.0),
+            left: Val::Px(520.0),
+            ..default()
+        },
+        children![(
+            TextSpan::default(),
+            TextFont {
+                font: scoreboard_font.clone(),
+                font_size: SCOREBOARD_FONT_SIZE,
+                ..default()
+            },
+            TextColor(Color::WHITE),
+        )],
+    ));
+    commands.spawn((
+        Text::new(""),
+        ScoreboardUi,
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(20.0),
+            right: Val::Px(510.0),
+            ..default()
+        },
+        children![(
+            TextSpan::default(),
+            TextFont {
+                font: scoreboard_font.clone(),
+                font_size: SCOREBOARD_FONT_SIZE,
+                ..default()
+            },
+            TextColor(Color::WHITE),
+        )],
+    ));
+}
+
+fn update_scoreboard(
+    score: Res<Score>,
+    mut scoreboards: Query<Entity, (With<ScoreboardUi>, With<Text>)>,
+    mut writer: TextUiWriter,
+) {
+    let entities = scoreboards.iter_mut().collect::<Vec<_>>();
+    if entities.len() == 2 {
+        *writer.text(entities[0], 1) = score.0.to_string();
+        *writer.text(entities[1], 1) = score.1.to_string();
+    }
 }
