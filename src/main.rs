@@ -9,6 +9,8 @@ const PADDLE_SIZE: Vec2 = Vec2::new(20.0, 120.0);
 
 const DASHEDLINE_SIZE: f32 = 20.;
 
+const WALL_THICKNESS: f32 = 1.0;
+const VERTICAL_WALL_THICKNESS: f32 = 20.0;
 const LEFT_WALL: f32 = -640.;
 const RIGHT_WALL: f32 = 640.;
 const BOTTOM_WALL: f32 = -470.;
@@ -80,6 +82,66 @@ struct Collider;
 #[require(Sprite, Transform, Collider)]
 struct Wall;
 
+enum WallLocation {
+    Left,
+    Right,
+    Bottom,
+    Top,
+}
+
+impl WallLocation {
+    // 墙体中心位置
+    fn position(&self) -> Vec2 {
+        match self {
+            WallLocation::Left => Vec2::new(LEFT_WALL, 0.),
+            WallLocation::Right => Vec2::new(RIGHT_WALL, 0.),
+            WallLocation::Bottom => Vec2::new(0., BOTTOM_WALL),
+            WallLocation::Top => Vec2::new(0., TOP_WALL),
+        }
+    }
+
+    // 墙面尺寸
+    fn size(&self) -> Vec2 {
+        let arena_height = TOP_WALL - BOTTOM_WALL;
+        let arena_width = RIGHT_WALL - LEFT_WALL;
+
+        assert!(arena_height > 0.0);
+        assert!(arena_width > 0.0);
+
+        match self {
+            WallLocation::Left | WallLocation::Right => {
+                Vec2::new(WALL_THICKNESS, arena_height + VERTICAL_WALL_THICKNESS)
+            }
+            WallLocation::Bottom | WallLocation::Top => {
+                Vec2::new(arena_width + WALL_THICKNESS, VERTICAL_WALL_THICKNESS)
+            }
+        }
+    }
+}
+
+impl Wall {
+    fn new(location: WallLocation) -> (Wall, Sprite, Transform) {
+        // 上下墙白色，左右墙不可见
+        let color = match location{
+            WallLocation::Left | WallLocation::Right => {
+                Color::NONE
+            }
+            WallLocation::Bottom | WallLocation::Top => {
+                Color::WHITE
+            }
+        };
+        (
+            Wall,
+            Sprite::from_color(color, Vec2::ONE),
+            Transform {
+                translation: location.position().extend(0.0),
+                scale: location.size().extend(1.0),
+                ..default()
+            },
+        )
+    }
+}
+
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -118,6 +180,12 @@ fn setup(
         PaddleType::Right,
         Collider,
     ));
+
+    // Walls
+    commands.spawn(Wall::new(WallLocation::Left));
+    commands.spawn(Wall::new(WallLocation::Right));
+    commands.spawn(Wall::new(WallLocation::Bottom));
+    commands.spawn(Wall::new(WallLocation::Top));
 
     // DashedLineSegment
     let center_line_start = Vec3::new(0.0, TOP_WALL, 0.0);
