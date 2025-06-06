@@ -64,6 +64,7 @@ fn main() {
                 move_paddle,
                 check_for_collisions,
                 play_collision_sound,
+                ball_reset,
             ).chain()
         )
         .add_systems(Update, (make_visible, update_scoreboard))
@@ -105,7 +106,12 @@ struct Velocity(Vec2);
 struct CollisionEvent;
 
 #[derive(Event, Default)]
-struct ScoreEvent;
+// struct ScoreEvent;
+enum ScoreEvent {
+    #[default]
+    Player1Scored,
+    Player2Scored,
+}
 
 #[derive(Resource, Deref)]
 struct CollisionSound(Handle<AudioSource>);
@@ -382,13 +388,13 @@ fn move_paddle(
 fn check_for_collisions(
     mut score: ResMut<Score>,
     ball_query: Single<(&mut Velocity, &Transform), With<Ball>>,
-    collider_query: Query<(&Transform, Option<&WallType>), With<Collider>>,
+    collider_query: Query<(&Transform, Option<&WallType>, Option<&Paddle>), With<Collider>>,
     mut collision_events: EventWriter<CollisionEvent>,
     mut score_events: EventWriter<ScoreEvent>,
 ) {
     let (mut ball_velocity, ball_transform) = ball_query.into_inner();
 
-    for (collider_transform, maybe_wall_type) in &collider_query {
+    for (collider_transform, maybe_wall_type, maybe_paddle) in &collider_query {
         let collision = ball_collision(
             BoundingCircle::new(ball_transform.translation.truncate(), BALL_SIZE / 2.),
             Aabb2d::new(
@@ -402,16 +408,24 @@ fn check_for_collisions(
                 match wall_type {
                     WallType::Right => {
                         score.0 += 1;
-                        score_events.write_default();
+                        score_events.write(ScoreEvent::Player1Scored);
+                        continue;
                     }
                     WallType::Left => {
                         score.1 += 1;
-                        score_events.write_default();
+                        score_events.write(ScoreEvent::Player2Scored);
+                        continue;
                     }
                     WallType::Top | WallType::Bottom => {collision_events.write_default();}
                 }
             } else{
                 collision_events.write_default();
+            }
+
+            // 每次成功接球后，球速加到1.2倍
+            if maybe_paddle.is_some(){
+                ball_velocity.x *= 1.2;
+                ball_velocity.y *= 1.2;
             }
             
             let mut reflect_x = false;
@@ -427,7 +441,6 @@ fn check_for_collisions(
             if reflect_x {
                 ball_velocity.x = -ball_velocity.x;
             }
-
             if reflect_y {
                 ball_velocity.y = -ball_velocity.y;
             }
@@ -468,7 +481,7 @@ fn ball_collision(ball: BoundingCircle, bounding_box: Aabb2d) -> Option<Collisio
 fn play_collision_sound(
     mut commands: Commands,
     mut collision_events: EventReader<CollisionEvent>,
-    mut score_events: EventReader<ScoreEvent>,
+    score_events: EventReader<ScoreEvent>,
     collision_sound: Res<CollisionSound>,
     score_sound: Res<ScoreSound>,
 ) {
@@ -477,7 +490,28 @@ fn play_collision_sound(
         commands.spawn((AudioPlayer(collision_sound.clone()), PlaybackSettings::DESPAWN));
     }
     if !score_events.is_empty() {
-        score_events.clear();
         commands.spawn((AudioPlayer(score_sound.clone()), PlaybackSettings::DESPAWN));
     }
 }
+
+fn ball_reset(
+    ball_query: Single<(&mut Velocity, &mut Transform), With<Ball>>,
+    mut score_events: EventReader<ScoreEvent>,
+    
+) {
+    if !score_events.is_empty() {
+        score_events.clear();
+        let (mut ball_velocity, mut ball_transform) = ball_query.into_inner();
+        
+        **ball_velocity = ball_velocity.normalize() * BALL_SPEED;
+        ball_velocity.x = -ball_velocity.x;
+        
+        if ball_transform.translation.x > 0.0 {
+            ball_transform.translation.x -= 21.0;
+        } else {
+            ball_transform.translation.x += 21.0;
+        }
+        // ball_transform.translation.y = rand::rng().random_range(-450.0..=450.0);
+    }
+}
+        
