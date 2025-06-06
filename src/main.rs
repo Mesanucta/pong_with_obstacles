@@ -497,21 +497,24 @@ fn play_collision_sound(
 fn ball_reset(
     ball_query: Single<(&mut Velocity, &mut Transform), With<Ball>>,
     mut score_events: EventReader<ScoreEvent>,
-    
 ) {
     if !score_events.is_empty() {
         score_events.clear();
         let (mut ball_velocity, mut ball_transform) = ball_query.into_inner();
         
-        **ball_velocity = ball_velocity.normalize() * BALL_SPEED;
-        ball_velocity.x = -ball_velocity.x;
+        let sign  = if rand::rng().random_bool(0.5) { 1.0 } else { -1.0 };
+        let temp_num = sign * rand::rng().random_range(0.1..=0.5);
+        ball_velocity.y = ball_velocity.x * temp_num; // 随机发球角度
+
+        **ball_velocity = ball_velocity.normalize() * BALL_SPEED; //恢复球速
         
         if ball_transform.translation.x > 0.0 {
-            ball_transform.translation.x -= 21.0;
+            ball_transform.translation.x = LEFT_WALL + 40.0;
         } else {
-            ball_transform.translation.x += 21.0;
+            ball_transform.translation.x = RIGHT_WALL - 40.0;
         }
-        // ball_transform.translation.y = rand::rng().random_range(-450.0..=450.0);
+
+        ball_transform.translation.y = 0.0;
     }
 }
-        
+       
