@@ -31,7 +31,7 @@ const SCOREBOARD_FONT_SIZE: f32 = 150.0;
 const VICTORY_TEXT_FONT_SIZE: f32 = 150.0;
 const HINT_FONT_SIZE: f32 = 50.0;
 
-const TARGET_SCORE: usize = 3;
+const TARGET_SCORE: usize = 9;
 
 fn main() {
     App::new()
@@ -43,7 +43,7 @@ fn main() {
                     resolution: (1280., 960.).into(),
                     present_mode: PresentMode::AutoVsync,
                     window_theme: Some(WindowTheme::Dark),
-                    // resizable: false,
+                    resizable: false,
                     enabled_buttons: bevy::window::EnabledButtons {
                         maximize: false,
                         ..Default::default()
@@ -65,7 +65,7 @@ fn main() {
         .init_state::<GameState>()
         .enable_state_scoped_entities::<GameState>()
         .add_systems(Startup, setup)
-        // .add_systems(OnEnter(GameState::Playing), game_reset)
+        .add_systems(OnEnter(GameState::Playing), game_reset)
         .add_systems(
             FixedUpdate,
             (
@@ -293,11 +293,10 @@ fn setup(
     commands.spawn(Wall::new(WallLocation::Top));
 
     // Ball
-    let starting_position = rand::rng().random_range(-450.0..=450.0);
     commands.spawn((
         Mesh2d(meshes.add(Rectangle::new(BALL_SIZE, BALL_SIZE))),
         MeshMaterial2d(materials.add(Color::WHITE)),
-        Transform::from_translation(BALL_STARTING_POSITION + Vec3::new(0.0, starting_position, 0.0))
+        Transform::from_translation(BALL_STARTING_POSITION)
             .with_scale(Vec3::ONE),
         Ball,
         Velocity(INITIAL_BALL_DIRECTION.normalize() * BALL_SPEED),
@@ -455,7 +454,7 @@ fn check_for_collisions(
                     WallType::Left => {
                         score.1 += 1;
                         score_events.write(ScoreEvent::Player2Scored);
-                        if score.0 >= TARGET_SCORE {
+                        if score.1 >= TARGET_SCORE {
                             winner.0 = Some(PaddleType::Right);
                             next_state.set(GameState::GameOver);
                         }
@@ -551,7 +550,7 @@ fn ball_reset(
         let temp_num = sign * rand::rng().random_range(0.1..=0.5);
         ball_velocity.y = ball_velocity.x * temp_num; // 随机发球角度
 
-        **ball_velocity = ball_velocity.normalize() * BALL_SPEED; //恢复球速
+        **ball_velocity = ball_velocity.normalize() * BALL_SPEED; // 恢复球速
         
         if ball_transform.translation.x > 0.0 {
             ball_transform.translation.x = LEFT_WALL + 40.0;
@@ -605,7 +604,7 @@ fn display_winner(
         },
         children![
             (
-                Text::new(format!("{}", message.to_string())),
+                Text::new(message.to_string()),
                 TextFont {
                     font: victory_font.clone(),
                     font_size: VICTORY_TEXT_FONT_SIZE,
@@ -636,8 +635,21 @@ fn game_over_keyboard(
 }
 
 fn game_reset(
-    ball_query: Single<(&mut Velocity, &mut Transform), With<Ball>>,
-    mut score_events: EventReader<ScoreEvent>,
+    mut score: ResMut<Score>,
+    ball_query: Single<(&mut Velocity, &mut Transform), (With<Ball>, Without<Paddle>)>,
+    mut paddle_query: Query<&mut Transform, (With<Paddle>, Without<Ball>)>,
 ) {
+    // 重置分数   
+    score.0 = 0;
+    score.1 = 0;
 
+    // 重置挡板位置
+    for mut paddle_transform in paddle_query.iter_mut(){
+        paddle_transform.translation.y = 0.0;
+    }
+
+    // 重置小球位置、速度、发球角度
+    let (mut ball_velocity, mut ball_transform) = ball_query.into_inner();
+    **ball_velocity = INITIAL_BALL_DIRECTION.normalize() * BALL_SPEED;
+    ball_transform.translation = BALL_STARTING_POSITION;
 }
