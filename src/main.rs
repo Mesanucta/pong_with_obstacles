@@ -4,8 +4,8 @@ use bevy::{
     prelude::*, 
     window::{PresentMode, WindowTheme}
 };
-use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
 use rand::Rng;
+// use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
 
 const PADDLE_SIZE: Vec2 = Vec2::new(20.0, 120.0);
 const PADDLE_SPEED: f32 = 500.0;
@@ -31,7 +31,10 @@ const SCOREBOARD_FONT_SIZE: f32 = 150.0;
 const VICTORY_TEXT_FONT_SIZE: f32 = 150.0;
 const HINT_FONT_SIZE: f32 = 50.0;
 
-const TARGET_SCORE: usize = 9;
+const TARGET_SCORE: usize = 2;
+
+const OBSTACLE_SIZE_RANGE: [Vec2; 2] = [Vec2::new(30.0, 100.0), Vec2::new(30.0, 200.0)];
+const OBSTACLE_COUNT:i32 = 5;
 
 fn main() {
     App::new()
@@ -54,8 +57,8 @@ fn main() {
                 ..default()
             }),
         ))
-        .add_plugins(EguiPlugin { enable_multipass_for_primary_context: true })
-        .add_plugins(WorldInspectorPlugin::new())
+        // .add_plugins(EguiPlugin { enable_multipass_for_primary_context: true })
+        // .add_plugins(WorldInspectorPlugin::new())
         .init_state::<GameState>()
         .insert_resource(Winner::default())
         .insert_resource(Score(0, 0))
@@ -112,6 +115,9 @@ struct Ball;
 
 #[derive(Component)]
 struct DashedLineSegment;
+
+#[derive(Component)]
+struct Obstacle;
 
 #[derive(Resource)]
 struct Score(usize, usize);
@@ -294,10 +300,12 @@ fn setup(
 
     // Ball
     commands.spawn((
-        Mesh2d(meshes.add(Rectangle::new(BALL_SIZE, BALL_SIZE))),
-        MeshMaterial2d(materials.add(Color::WHITE)),
-        Transform::from_translation(BALL_STARTING_POSITION)
-            .with_scale(Vec3::ONE),
+        Sprite::from_color(Color::WHITE, Vec2::ONE),
+        Transform {
+            translation: BALL_STARTING_POSITION,
+            scale: Vec3::new(BALL_SIZE, BALL_SIZE, 1.0),
+            ..default()
+        },
         Ball,
         Velocity(INITIAL_BALL_DIRECTION.normalize() * BALL_SPEED),
     ));
@@ -359,6 +367,8 @@ fn setup(
             TextColor(Color::WHITE),
         )],
     ));
+
+    spawn_obstacles(commands);
 }
 
 fn update_scoreboard(
@@ -638,6 +648,7 @@ fn game_reset(
     mut score: ResMut<Score>,
     ball_query: Single<(&mut Velocity, &mut Transform), (With<Ball>, Without<Paddle>)>,
     mut paddle_query: Query<&mut Transform, (With<Paddle>, Without<Ball>)>,
+    commands: Commands,
 ) {
     // 重置分数   
     score.0 = 0;
@@ -652,4 +663,80 @@ fn game_reset(
     let (mut ball_velocity, mut ball_transform) = ball_query.into_inner();
     **ball_velocity = INITIAL_BALL_DIRECTION.normalize() * BALL_SPEED;
     ball_transform.translation = BALL_STARTING_POSITION;
+
+    spawn_obstacles(commands);
+}
+
+fn spawn_obstacles(
+    mut commands: Commands,
+) {
+    // 生成障碍
+    let mut rng = rand::rng();
+    let mut placed_obstacles: Vec<(Vec2, Vec2)> = Vec::new(); // 存储已放置的障碍(中心, 半尺寸)
+    let try_area = (
+        LEFT_WALL + 100.0,
+        RIGHT_WALL - 100.0,
+        BOTTOM_WALL + 100.0,
+        TOP_WALL - 100.0,
+    );
+
+    for _ in 0..OBSTACLE_COUNT {
+        for _ in 0..50 { // 最多尝试50次
+            let mut size = Vec2::new(
+                rng.random_range(OBSTACLE_SIZE_RANGE[0].x..=OBSTACLE_SIZE_RANGE[0].y),
+                rng.random_range(OBSTACLE_SIZE_RANGE[1].x..=OBSTACLE_SIZE_RANGE[1].y),
+            );
+            // 随机交换障碍的长和宽
+            if rng.random_bool(0.5) {
+                std::mem::swap(&mut size.x, &mut size.y);
+            }
+
+            let half = size / 2.0;
+            let pos = Vec2::new(
+                rng.random_range(try_area.0 + half.x..=try_area.1 - half.x),
+                rng.random_range(try_area.2 + half.y..=try_area.3 - half.y),
+            );
+
+            // 检查是否与已放置的障碍重叠
+            let mut overlap = false;
+            for (other_pos, other_half) in &placed_obstacles {
+                if (pos.x - other_pos.x).abs() < (half.x + other_half.x + 10.0) &&
+                   (pos.y - other_pos.y).abs() < (half.y + other_half.y + 10.0) {
+                    overlap = true;
+                    break;
+                }
+            }
+            // 检查是否与中间区域(计分板、地图中线)重叠
+            if pos.x.abs() < half.x + 150.0 {
+                overlap = true;
+            }
+
+            if !overlap {
+                placed_obstacles.push((pos, half));
+                commands.spawn((
+                    StateScoped(GameState::Playing), // 进入Playing重新生成，退出自动销毁
+                    Sprite::from_color(Color::WHITE, Vec2::ONE),
+                    Transform {
+                        translation: pos.extend(0.0),
+                        scale: Vec3::new(size.x, size.y, 1.0),
+                        ..default()
+                    },
+                    Obstacle,
+                    Collider,
+                ));
+                commands.spawn((
+                    StateScoped(GameState::Playing),
+                    Sprite::from_color(Color::BLACK, Vec2::ONE),
+                    Transform {
+                        translation: pos.extend(0.0),
+                        scale: Vec3::new(size.x - 10.0, size.y - 10.0, 1.0),
+                        ..default()
+                    },
+                    Obstacle,
+                    Collider,
+                ));
+                break;
+            }
+        }
+    }
 }
