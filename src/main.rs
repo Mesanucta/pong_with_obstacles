@@ -1,8 +1,8 @@
 use bevy::{
-    prelude::*,
-    math::bounding::{Aabb2d, BoundingCircle, BoundingVolume, IntersectsVolume},
-    window::{PresentMode, WindowTheme},
-    diagnostic::{FrameCount},
+    diagnostic::FrameCount, 
+    math::bounding::{Aabb2d, BoundingCircle, BoundingVolume, IntersectsVolume}, 
+    prelude::*, 
+    window::{PresentMode, WindowTheme}
 };
 use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
 use rand::Rng;
@@ -28,6 +28,10 @@ const GAP_BETWEEN_PADDLE_AND_SIDES: f32 = 10.0;
 const GAP_BETWEEN_DASHEDLINESEGMENTS: f32 = 40.0;
 
 const SCOREBOARD_FONT_SIZE: f32 = 150.0;
+const VICTORY_TEXT_FONT_SIZE: f32 = 150.0;
+const HINT_FONT_SIZE: f32 = 50.0;
+
+const TARGET_SCORE: usize = 3;
 
 fn main() {
     App::new()
@@ -39,7 +43,7 @@ fn main() {
                     resolution: (1280., 960.).into(),
                     present_mode: PresentMode::AutoVsync,
                     window_theme: Some(WindowTheme::Dark),
-                    resizable: false,
+                    // resizable: false,
                     enabled_buttons: bevy::window::EnabledButtons {
                         maximize: false,
                         ..Default::default()
@@ -52,11 +56,16 @@ fn main() {
         ))
         .add_plugins(EguiPlugin { enable_multipass_for_primary_context: true })
         .add_plugins(WorldInspectorPlugin::new())
+        .init_state::<GameState>()
+        .insert_resource(Winner::default())
         .insert_resource(Score(0, 0))
         .insert_resource(ClearColor(Color::BLACK))
         .add_event::<CollisionEvent>()
         .add_event::<ScoreEvent>()
+        .init_state::<GameState>()
+        .enable_state_scoped_entities::<GameState>()
         .add_systems(Startup, setup)
+        // .add_systems(OnEnter(GameState::Playing), game_reset)
         .add_systems(
             FixedUpdate,
             (
@@ -65,14 +74,25 @@ fn main() {
                 check_for_collisions,
                 play_collision_sound,
                 ball_reset,
-            ).chain()
+            ).chain().run_if(in_state(GameState::Playing))
         )
-        .add_systems(Update, (make_visible, update_scoreboard))
+        .add_systems(
+            Update,
+            (
+                make_window_visible, 
+                update_scoreboard,
+            )
+        )
+        .add_systems(OnEnter(GameState::GameOver), display_winner)
+        .add_systems(
+            Update,
+            game_over_keyboard.run_if(in_state(GameState::GameOver)
+))
         .run();
 }
 
 //等待渲染，延迟3帧窗口可见
-fn make_visible(mut window: Single<&mut Window>, frames: Res<FrameCount>){
+fn make_window_visible(mut window: Single<&mut Window>, frames: Res<FrameCount>){
     if frames.0 == 3{
         window.visible = true;
     }
@@ -99,6 +119,22 @@ struct Score(usize, usize);
 #[derive(Component)]
 struct ScoreboardUi;
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default, States)]
+enum GameState {
+    #[default]
+    Playing,
+    GameOver, // 存储胜利方
+}
+
+#[derive(Resource, Default)]
+struct Winner(Option<PaddleType>);
+
+#[derive(Component)]
+struct VictoryText;
+
+#[derive(Component)]
+struct TextBackground;
+
 #[derive(Component, Deref, DerefMut)]
 struct Velocity(Vec2);
 
@@ -106,7 +142,6 @@ struct Velocity(Vec2);
 struct CollisionEvent;
 
 #[derive(Event, Default)]
-// struct ScoreEvent;
 enum ScoreEvent {
     #[default]
     Player1Scored,
@@ -329,7 +364,7 @@ fn setup(
 
 fn update_scoreboard(
     score: Res<Score>,
-    mut scoreboards: Query<Entity, (With<ScoreboardUi>, With<Text>)>,
+    mut scoreboards: Query<Entity, (With<ScoreboardUi>, With<Text>, Without<VictoryText>)>,
     mut writer: TextUiWriter,
 ) {
     let entities = scoreboards.iter_mut().collect::<Vec<_>>();
@@ -387,6 +422,8 @@ fn move_paddle(
 
 fn check_for_collisions(
     mut score: ResMut<Score>,
+    mut winner: ResMut<Winner>,
+    mut next_state: ResMut<NextState<GameState>>,
     ball_query: Single<(&mut Velocity, &Transform), With<Ball>>,
     collider_query: Query<(&Transform, Option<&WallType>, Option<&Paddle>), With<Collider>>,
     mut collision_events: EventWriter<CollisionEvent>,
@@ -409,11 +446,19 @@ fn check_for_collisions(
                     WallType::Right => {
                         score.0 += 1;
                         score_events.write(ScoreEvent::Player1Scored);
+                        if score.0 >= TARGET_SCORE {
+                            winner.0 = Some(PaddleType::Left);
+                            next_state.set(GameState::GameOver);
+                        }
                         continue;
                     }
                     WallType::Left => {
                         score.1 += 1;
                         score_events.write(ScoreEvent::Player2Scored);
+                        if score.0 >= TARGET_SCORE {
+                            winner.0 = Some(PaddleType::Right);
+                            next_state.set(GameState::GameOver);
+                        }
                         continue;
                     }
                     WallType::Top | WallType::Bottom => {collision_events.write_default();}
@@ -517,4 +562,82 @@ fn ball_reset(
         ball_transform.translation.y = 0.0;
     }
 }
-       
+
+fn display_winner(
+    mut commands: Commands, 
+    winner: Res<Winner>,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let victory_font = asset_server.load("fonts/Bit3.ttf");
+
+    let message = match winner.0 {
+            Some(PaddleType::Left) => "PLAYER 1 WIN!",
+            Some(PaddleType::Right) => "PLAYER 2 WIN!",
+            _ => "GAME OVER!",
+        };
+
+    // 文本背景框
+    commands.spawn((
+        StateScoped(GameState::GameOver),
+        Mesh2d(meshes.add(Rectangle::new(1000.0, 250.0))),
+        MeshMaterial2d(materials.add(Color::BLACK)),
+        Transform::from_translation(Vec3::new(0.0, -25.0, 0.0))
+            .with_scale(Vec3::ONE),
+        TextBackground,
+    ));
+
+    // 胜利文本
+    commands.spawn((
+        StateScoped(GameState::GameOver),
+        VictoryText,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(0.0),
+            right: Val::Px(0.0),
+            top: Val::Px(0.0),
+            bottom: Val::Px(0.0),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+            flex_direction: FlexDirection::Column,
+            ..default()
+        },
+        children![
+            (
+                Text::new(format!("{}", message.to_string())),
+                TextFont {
+                    font: victory_font.clone(),
+                    font_size: VICTORY_TEXT_FONT_SIZE,
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+            ),
+            (
+                Text::new("PRESS K TO RESTART"),
+                TextFont {
+                    font: victory_font.clone(),
+                    font_size: HINT_FONT_SIZE,
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+            ),
+        ],
+    ));
+}
+
+fn game_over_keyboard(
+    mut next_state: ResMut<NextState<GameState>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+) {
+    if keyboard_input.just_pressed(KeyCode::KeyK) {
+        next_state.set(GameState::Playing);
+    }
+}
+
+fn game_reset(
+    ball_query: Single<(&mut Velocity, &mut Transform), With<Ball>>,
+    mut score_events: EventReader<ScoreEvent>,
+) {
+
+}
