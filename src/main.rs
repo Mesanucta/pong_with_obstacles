@@ -31,7 +31,7 @@ const SCOREBOARD_FONT_SIZE: f32 = 150.0;
 const VICTORY_TEXT_FONT_SIZE: f32 = 150.0;
 const HINT_FONT_SIZE: f32 = 50.0;
 
-const TARGET_SCORE: usize = 2;
+const TARGET_SCORE: usize = 9;
 
 const OBSTACLE_SIZE_RANGE: [Vec2; 2] = [Vec2::new(30.0, 100.0), Vec2::new(30.0, 200.0)];
 const OBSTACLE_COUNT:i32 = 5;
@@ -476,10 +476,10 @@ fn check_for_collisions(
                 collision_events.write_default();
             }
 
-            // 每次成功接球后，球速加到1.2倍
+            // 每次成功接球后，球速加到1.1倍
             if maybe_paddle.is_some(){
-                ball_velocity.x *= 1.2;
-                ball_velocity.y *= 1.2;
+                ball_velocity.x *= 1.1;
+                ball_velocity.y *= 1.1;
             }
             
             let mut reflect_x = false;
